@@ -1,1 +1,1 @@
-Sample input file
+Hello my name is owen

@@ -163,15 +163,15 @@ public class Server {
 			System.exit(1);
 		} 
 
-		Server server = new Server();
-		String choice=args[1];
+		Server server = new Server(); // instantiate a server
+		String choice=args[1]; // choice of normally or with lost ack
 		float loss = 0;
-		server.socket = new DatagramSocket(Integer.parseInt(args[0])); 
+		server.socket = new DatagramSocket(Integer.parseInt(args[0])); // create new socket with port number
 
-		Scanner sc=new Scanner(System.in);   
+		Scanner sc=new Scanner(System.in); // create scanner
 		if (choice.equalsIgnoreCase("wl")) {
 			System.out.println("Enter the probability of a lost ack (between 0 and 1): ");
-			loss = sc.nextFloat();
+			loss = sc.nextFloat(); // percentage chance of a lost ack
 		} 
 
 		System.out.println("SERVER: binding ... Ready to receive meta info from the client "); 

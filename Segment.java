@@ -45,9 +45,4 @@
 	public void setChecksum(int checksum) {
 		this.checksum = checksum;
 	}
-
- 
-
-	 
-
-}
+	}
