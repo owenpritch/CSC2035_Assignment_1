@@ -158,7 +158,7 @@ public class Client {
 
 		// Send the packet over the socket
 		socket.send(packet);
-		System.out.println("SENDER: Metadata has been sent\n");
+		System.out.println("SENDER: Metadata has been sent");
 	}
 
 	/* TODO: Send the file to the server without corruption*/
@@ -182,100 +182,67 @@ public class Client {
 		int currentIndexOfBuffer = 0;
 		int lastIndexOfBuffer = buffer.length;
 
-		// Send initial segment
-		if(bytesToSend >= 0 && bytesToSend <= 4) {
-			segment.setSize(bytesToSend);
-			System.out.println("Bytes to send = " + bytesToSend);
-			System.out.println("Current index = " + currentIndexOfBuffer);
-			System.out.println("Last index = " + lastIndexOfBuffer);
-			String payload = new String(buffer).substring(currentIndexOfBuffer, lastIndexOfBuffer);
-			segment.setPayLoad(payload);
-			System.out.println(currentIndexOfBuffer);
-			segment.setChecksum(checksum(segment.getPayLoad(), false));
-		} else {
-			segment.setSize(4);
-			System.out.println("Bytes to send = " + bytesToSend);
-			System.out.println("Current index = " + currentIndexOfBuffer);
-			System.out.println("Last index = " + lastIndexOfBuffer);
-			String payload = new String(buffer).substring(currentIndexOfBuffer, currentIndexOfBuffer + 4);
-			segment.setPayLoad(payload);
-			segment.setChecksum(checksum(segment.getPayLoad(), false));
-		}
-
-		objectOutputStream.writeObject(segment);
-        byte[] data = outputStream.toByteArray();
-        DatagramPacket outgoingPacket = new DatagramPacket(data, data.length, IPAddress, portNumber);
-
-		System.out.println("packet - " + outgoingPacket);
-		System.out.println("packet data - " + Arrays.toString(outgoingPacket.getData()));
-		System.out.println("packet data length - " + outgoingPacket.getLength());
-		System.out.println("SENDER: Sending file\n");
-		socket.send(outgoingPacket);
+		// Segment counters
+		int segmentsToSend = (int) Math.ceil(file.length() / 4.0);
+		int segmentsSent = 0;
 
 		// Set up input objects
 		byte[] ackData = new byte[1024];
-		Segment ackSegment = new Segment();
+		Segment ackSegment;
 
 		// Send the rest of the segments
 		while(bytesToSend > 0) {
+			System.out.println(bytesToSend);
+			// If there are less than 4 bytes left to send
+			if(bytesToSend <= 4) {
+				segment.setSize(bytesToSend);
+				segment.setPayLoad(new String(buffer).substring(currentIndexOfBuffer, lastIndexOfBuffer));
+			// More than 4 bytes
+			} else {
+				segment.setSize(4);
+				String payload3 = new String(buffer).substring(currentIndexOfBuffer, currentIndexOfBuffer + 4);
+				segment.setPayLoad(payload3);
+			}
+			segment.setChecksum(checksum(segment.getPayLoad(), false));
 
-			// Receive Ack
-			DatagramPacket incomingPacket = new DatagramPacket(ackData, ackData.length);
-			socket.receive(incomingPacket);
-			byte[] payload = incomingPacket.getData();
-			ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(payload);
-			ObjectInputStream objectInputStream = new ObjectInputStream(byteArrayInputStream);
+			objectOutputStream.writeObject(segment);
+			byte[] data = outputStream.toByteArray();
+			DatagramPacket outgoingPacket = new DatagramPacket(data, data.length, IPAddress, portNumber);
+			System.out.println("\nSENDER: Start Sending File\n");
+			System.out.println("----------------------------------------\n");
+			System.out.println("SENDER: Sending segment: sq " + segment.getSq() + " size: " + segment.getSize() + " checksum: " + segment.getChecksum() + " content: " + segment.getPayLoad() + "\n");
 
-			ackSegment = (Segment) objectInputStream.readObject();
-			System.out.println("SENDER: A Segment with sq "+ ackSegment.getSq()+" is received: ");
+			outgoingPacket.setData(data);
+			outgoingPacket.setLength(data.length);
+			socket.send(outgoingPacket);
+
+			System.out.println("SENDER: Waiting for an ack\n");
+			ackSegment = (Segment) receiveAck(socket, ackData).readObject();
+			segmentsSent += 1;
+			System.out.println("SENDER: ACK sq=" + ackSegment.getSq() + " RECEIVED.\n");
+			System.out.println("SENDER: " + segmentsSent + " / " + segmentsToSend + " segments sent\n");
+			System.out.println("----------------------------------------");
+
 			bytesToSend -= 4;
-			System.out.println("Updated bytesToSend = " + bytesToSend);
 			currentIndexOfBuffer += 4;
-			System.out.println("Updated currentIndexOfBuffer = " + currentIndexOfBuffer);
 
 			// Alternate sequence number
 			segment.setSq(1-segment.getSq());
 
-			// If there are less than 4 bytes left to send
-			if(bytesToSend > 0 && bytesToSend <= 4) {
-				segment.setSize(bytesToSend);
-				System.out.println("Bytes to send = " + bytesToSend);
-				System.out.println("Current index = " + currentIndexOfBuffer);
-				System.out.println("Last index = " + lastIndexOfBuffer);
-				String payload2 = new String(buffer).substring(currentIndexOfBuffer, lastIndexOfBuffer);
-				segment.setPayLoad(payload2);
-				System.out.println("Payload = " + segment.getPayLoad());
-				segment.setChecksum(checksum(segment.getPayLoad(), false));
-			// More than 4 bytes
-			} else if(bytesToSend > 0){
-				segment.setSize(4);
-				System.out.println("Bytes to send = " + bytesToSend);
-				System.out.println("Current index = " + currentIndexOfBuffer);
-				System.out.println("Last index = " + lastIndexOfBuffer);
-				System.out.println(fileInputStream.read(buffer));
-				String payload3 = new String(buffer).substring(currentIndexOfBuffer, currentIndexOfBuffer + 4);
-				segment.setPayLoad(payload3);
-				System.out.println("Payload = " + segment.getPayLoad());
-				segment.setChecksum(checksum(segment.getPayLoad(), false));
-			}
+			// Reset output stream
 			outputStream = new ByteArrayOutputStream();
 			objectOutputStream = new ObjectOutputStream(outputStream);
-            objectOutputStream.writeObject(segment);
-            data = outputStream.toByteArray();
-            outgoingPacket.setData(data);
-            outgoingPacket.setLength(data.length);
-			socket.send(outgoingPacket);
+
+			}
 		}
-	} 
 
 	/* TODO: This function is essentially the same as the sendFileNormal function
 	 *      except that it resends data segments if no ACK for a segment is 
 	 *      received from the server.*/
 	public void sendFileWithTimeOut(int portNumber, InetAddress IPAddress, File file, float loss) throws IOException, ClassNotFoundException {
 		// Set up the output objects
-		ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-		ObjectOutputStream objectOutputStream = new ObjectOutputStream(outputStream);
 		socket = new DatagramSocket();
+		socket.setSoTimeout(20);
 
 		// Read the file into a buffer
 		FileInputStream fileInputStream = new FileInputStream(file);
@@ -291,88 +258,99 @@ public class Client {
 		int currentIndexOfBuffer = 0;
 		int lastIndexOfBuffer = buffer.length;
 
+		// Segment counters
+		int segmentsToSend = (int) Math.ceil(file.length() / 4.0);
+		int segmentsSent = 0;
+
+		int retryNumber = 0;
+
 		// Set up input objects
 		byte[] ackData = new byte[1024];
-		Segment ackSegment = new Segment();
+		Segment ackSegment;
 
-		// Send the rest of the segments
+		System.out.println("\nSENDER: Start Sending File\n");
+		System.out.println("----------------------------------------\n");
+
+		// Main loop
 		while(bytesToSend > 0) {
+
+			boolean segmentSent = false;
 
 			// If there are less than 4 bytes left to send
 			if(bytesToSend <= 4) {
 				segment.setSize(bytesToSend);
-				System.out.println("Bytes to send = " + bytesToSend);
-				System.out.println("Current index = " + currentIndexOfBuffer);
-				System.out.println("Last index = " + lastIndexOfBuffer);
-				String payload2 = new String(buffer).substring(currentIndexOfBuffer, lastIndexOfBuffer);
-				segment.setPayLoad(payload2);
-				System.out.println("Payload = " + segment.getPayLoad());
-				segment.setChecksum(checksum(segment.getPayLoad(), false));
+				segment.setPayLoad(new String(buffer).substring(currentIndexOfBuffer, lastIndexOfBuffer));
 				// More than 4 bytes
 			} else {
 				segment.setSize(4);
-				System.out.println("Bytes to send = " + bytesToSend);
-				System.out.println("Current index = " + currentIndexOfBuffer);
-				System.out.println("Last index = " + lastIndexOfBuffer);
-				System.out.println(fileInputStream.read(buffer));
 				String payload3 = new String(buffer).substring(currentIndexOfBuffer, currentIndexOfBuffer + 4);
 				segment.setPayLoad(payload3);
-				System.out.println("Payload = " + segment.getPayLoad());
-				segment.setChecksum(checksum(segment.getPayLoad(), false));
-
-				// Receive Ack
-				DatagramPacket incomingPacket = new DatagramPacket(ackData, ackData.length);
-				socket.receive(incomingPacket);
-				byte[] payload = incomingPacket.getData();
-				ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(payload);
-				ObjectInputStream objectInputStream = new ObjectInputStream(byteArrayInputStream);
-
-				ackSegment = (Segment) objectInputStream.readObject();
-				System.out.println("SENDER: A Segment with sq "+ ackSegment.getSq()+" is received: ");
-				bytesToSend -= 4;
-				System.out.println("Updated bytesToSend = " + bytesToSend);
-				currentIndexOfBuffer += 4;
-				System.out.println("Updated currentIndexOfBuffer = " + currentIndexOfBuffer);
-
-				// Alternate sequence number
-				segment.setSq(1-segment.getSq());
-			}
-			outputStream = new ByteArrayOutputStream();
-			objectOutputStream = new ObjectOutputStream(outputStream);
-			objectOutputStream.writeObject(segment);
-
-			// Send initial segment
-			if(bytesToSend <= 4) {
-				segment.setSize(bytesToSend);
-				System.out.println("Bytes to send = " + bytesToSend);
-				System.out.println("Current index = " + currentIndexOfBuffer);
-				System.out.println("Last index = " + lastIndexOfBuffer);
-				String payload = new String(buffer).substring(currentIndexOfBuffer, lastIndexOfBuffer);
-				segment.setPayLoad(payload);
-				System.out.println(currentIndexOfBuffer);
-				segment.setChecksum(checksum(segment.getPayLoad(), false));
-			} else {
-				segment.setSize(4);
-				System.out.println("Bytes to send = " + bytesToSend);
-				System.out.println("Current index = " + currentIndexOfBuffer);
-				System.out.println("Last index = " + lastIndexOfBuffer);
-				String payload = new String(buffer).substring(currentIndexOfBuffer, currentIndexOfBuffer + 4);
-				segment.setPayLoad(payload);
-				segment.setChecksum(checksum(segment.getPayLoad(), false));
 			}
 
-			objectOutputStream.writeObject(segment);
-			byte[] data = outputStream.toByteArray();
-			DatagramPacket outgoingPacket = new DatagramPacket(data, data.length, IPAddress, portNumber);
+			while(!(segmentSent)) {
+				ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+				ObjectOutputStream objectOutputStream = new ObjectOutputStream(outputStream);
 
-			System.out.println("packet - " + outgoingPacket);
-			System.out.println("packet data - " + Arrays.toString(outgoingPacket.getData()));
-			System.out.println("packet data length - " + outgoingPacket.getLength());
-			System.out.println("SENDER: Sending file\n");
+				segment.setChecksum(checksum(segment.getPayLoad(), isCorrupted(loss)));
 
-			outgoingPacket.setData(data);
-			outgoingPacket.setLength(data.length);
-			socket.send(outgoingPacket);
+				objectOutputStream.writeObject(segment);
+				byte[] data = outputStream.toByteArray();
+				DatagramPacket outgoingPacket = new DatagramPacket(data, data.length, IPAddress, portNumber);
+				System.out.println("SENDER: Sending segment: sq " + segment.getSq() + " size: " + segment.getSize() + " checksum: " + segment.getChecksum() + " content: " + segment.getPayLoad() + "\n");
+
+				if(segment.getChecksum() == 0) {
+					System.out.println("\t\t>>>>>>>Network ERROR: segment checksum is corrupted<<<<<<<\n");
+				}
+
+
+
+				outgoingPacket.setData(data);
+				outgoingPacket.setLength(data.length);
+				socket.send(outgoingPacket);
+
+
+				try {
+
+					// Receive Ack
+					System.out.println("SENDER: Waiting for an ack\n");
+					ackSegment = (Segment) receiveAck(socket, ackData).readObject();
+					segmentsSent += 1;
+					System.out.println("SENDER: ACK sq=" + ackSegment.getSq() + " RECEIVED.\n");
+					System.out.println("SENDER: " + segmentsSent + " / " + segmentsToSend + " segments sent\n");
+					System.out.println("----------------------------------------\n");
+					bytesToSend -= 4;
+					currentIndexOfBuffer += 4;
+
+					// Alternate sequence number
+					segment.setSq(1-segment.getSq());
+
+					retryNumber = 0;
+					segmentSent = true;
+
+				} catch (SocketTimeoutException e) {
+					retryNumber += 1;
+					if(retryNumber == 3) {
+						System.out.println("SENDER: TIMEOUT ALERT: Re-sending the same segment again, final attempt\n");
+					} else if(retryNumber == RETRY_LIMIT) {
+						System.out.println("SENDER: TIMEOUT ALERT: Re-submission limit reached, terminating transmission");
+						System.exit(1);
+					} else {
+						System.out.println("SENDER: TIMEOUT ALERT: Re-sending the same segment again, current retry: " + retryNumber + "\n");
+					}
+
+				}
+			}
+
+
 		}
+	}
+
+	public ObjectInputStream receiveAck(DatagramSocket socket, byte[] ackData) throws IOException {
+		DatagramPacket incomingPacket = new DatagramPacket(ackData, ackData.length);
+		socket.receive(incomingPacket);
+		byte[] payload = incomingPacket.getData();
+		ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(payload);
+
+		return new ObjectInputStream(byteArrayInputStream);
 	}
 }
